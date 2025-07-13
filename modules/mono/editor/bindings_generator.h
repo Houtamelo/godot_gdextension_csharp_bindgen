@@ -626,6 +626,7 @@ class BindingsGenerator {
 		String name;
 		String unique_sig; // Unique signature to avoid duplicates in containers
 		bool editor_only = false;
+		ClassDB::APIType api_type;
 
 		bool is_vararg = false;
 		bool is_static = false;
@@ -636,10 +637,11 @@ class BindingsGenerator {
 
 		InternalCall() {}
 
-		InternalCall(ClassDB::APIType api_type, const String &p_name, const String &p_unique_sig = String()) {
+		InternalCall(ClassDB::APIType p_api_type, const String &p_name, const String &p_unique_sig = String()) {
 			name = p_name;
 			unique_sig = p_unique_sig;
-			editor_only = api_type == ClassDB::API_EDITOR;
+			api_type = p_api_type;
+			editor_only = p_api_type == ClassDB::API_EDITOR || p_api_type == ClassDB::API_EDITOR_EXTENSION;
 		}
 
 		inline bool operator==(const InternalCall &p_a) const {
@@ -649,6 +651,7 @@ class BindingsGenerator {
 
 	bool log_print_enabled = true;
 	bool initialized = false;
+	bool is_generating_gdextension = false;
 
 	HashMap<StringName, TypeInterface> obj_types;
 
@@ -674,6 +677,7 @@ class BindingsGenerator {
 		StringName type_VarArg = StaticCString::create("VarArg");
 		StringName type_Object = StaticCString::create("Object");
 		StringName type_RefCounted = StaticCString::create("RefCounted");
+		StringName type_Resource = StaticCString::create("Resource");
 		StringName type_RID = StaticCString::create("RID");
 		StringName type_Callable = StaticCString::create("Callable");
 		StringName type_Signal = StaticCString::create("Signal");
@@ -868,6 +872,12 @@ public:
 	_FORCE_INLINE_ bool is_initialized() { return initialized; }
 
 	static void handle_cmdline_args(const List<String> &p_cmdline_args);
+	static Error generate_gdextension_cs_api(const String &p_proj_dir);
+
+	BindingsGenerator(bool p_is_generating_gdextension) {
+		is_generating_gdextension = p_is_generating_gdextension;
+		_initialize();
+	}
 
 	BindingsGenerator() {
 		_initialize();

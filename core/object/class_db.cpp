@@ -553,7 +553,7 @@ Object *ClassDB::_instantiate_internal(const StringName &p_class, bool p_require
 
 #ifdef TOOLS_ENABLED
 	if ((ti->api == API_EDITOR || ti->api == API_EDITOR_EXTENSION) && !Engine::get_singleton()->is_editor_hint()) {
-		ERR_PRINT(vformat("Class '%s' can only be instantiated by editor.", String(p_class)));
+		ERR_PRINT(vformat("Class '%s' can only be instantiated by editor.", String(ti->name)));
 		return nullptr;
 	}
 #endif
@@ -683,7 +683,7 @@ ObjectGDExtension *ClassDB::get_placeholder_extension(const StringName &p_class)
 		placeholder_extension->parent = nullptr;
 		placeholder_extension->parent_class_name = ti->inherits;
 		placeholder_extension->class_name = ti->name;
-		placeholder_extension->editor_class = ti->api == API_EDITOR;
+		placeholder_extension->editor_class = ti->api == API_EDITOR || ti->api == API_EDITOR_EXTENSION;
 		placeholder_extension->reloadable = false;
 		placeholder_extension->is_virtual = ti->is_virtual;
 		placeholder_extension->is_abstract = false;
@@ -792,7 +792,7 @@ bool ClassDB::is_abstract(const StringName &p_class) {
 			goto use_script; // Open the lock for resource loading.
 		}
 
-		if (ti->creation_func != nullptr) {
+		if (ti->creation_func) {
 			return false;
 		}
 		if (!ti->gdextension) {
@@ -807,7 +807,7 @@ bool ClassDB::is_abstract(const StringName &p_class) {
 
 use_script:
 	Ref<Script> scr = ResourceLoader::load(script_path);
-	return scr.is_valid() && scr->is_valid() && scr->is_abstract();
+	return scr->is_valid() && scr->is_abstract();
 }
 
 bool ClassDB::is_virtual(const StringName &p_class) {

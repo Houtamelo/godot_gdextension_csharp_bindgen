@@ -194,7 +194,7 @@ private:
 	static MethodBind *_bind_vararg_method(MethodBind *p_bind, const StringName &p_name, const Vector<Variant> &p_default_args, bool p_compatibility);
 	static void _bind_method_custom(const StringName &p_class, MethodBind *p_method, bool p_compatibility);
 
-	static Object *_instantiate_internal(const StringName &p_class, bool p_require_real_class = false, bool p_notify_postinitialize = true);
+	static Object* _instantiate_internal(const StringName &p_class, bool p_require_real_class = false, bool p_notify_postinitialize = true);
 
 	static bool _can_instantiate(ClassInfo *p_class_info);
 

@@ -32,6 +32,7 @@
 #include "core_bind.compat.inc"
 
 #include "core/config/project_settings.h"
+#include "core/core_constants.h"
 #include "core/crypto/crypto_core.h"
 #include "core/debugger/engine_debugger.h"
 #include "core/debugger/script_debugger.h"
@@ -41,6 +42,7 @@
 #include "core/os/keyboard.h"
 #include "core/os/thread_safe.h"
 #include "core/variant/typed_array.h"
+#include "modules/mono/editor/bindings_generator.h"
 
 namespace core_bind {
 
@@ -1582,6 +1584,10 @@ TypedArray<Dictionary> ClassDB::class_get_method_list(const StringName &p_class,
 	return ret;
 }
 
+Error ClassDB::generate_gdextension_cs_api(const String &p_project_dir) const {
+	return BindingsGenerator::generate_gdextension_cs_api(p_project_dir);
+}
+
 Variant ClassDB::class_call_static(const Variant **p_arguments, int p_argcount, Callable::CallError &r_call_error) {
 	if (p_argcount < 2) {
 		r_call_error.error = Callable::CallError::CALL_ERROR_TOO_FEW_ARGUMENTS;
@@ -1738,6 +1744,8 @@ void ClassDB::_bind_methods() {
 	::ClassDB::bind_method(D_METHOD("is_class_enum_bitfield", "class", "enum", "no_inheritance"), &ClassDB::is_class_enum_bitfield, DEFVAL(false));
 
 	::ClassDB::bind_method(D_METHOD("is_class_enabled", "class"), &ClassDB::is_class_enabled);
+
+	::ClassDB::bind_method(D_METHOD("generate_gdextension_cs_api", "project_dir"), &ClassDB::generate_gdextension_cs_api);
 
 	BIND_ENUM_CONSTANT(API_CORE);
 	BIND_ENUM_CONSTANT(API_EDITOR);

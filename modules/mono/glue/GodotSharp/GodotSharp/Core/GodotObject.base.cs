@@ -29,7 +29,12 @@ namespace Godot
         {
             unsafe
             {
-                ConstructAndInitialize(NativeCtor, NativeName, _cachedType, refCounted: false);
+                ConstructAndInitialize(
+                    NativePtr == IntPtr.Zero ? NativeCtor(godot_bool.True) : IntPtr.Zero,
+                    NativeName,
+                    _cachedType,
+                    refCounted: false
+                );
             }
         }
 
@@ -38,14 +43,18 @@ namespace Godot
             // NativePtr must be non-zero before calling ConstructAndInitialize to avoid invoking the constructor NativeCtor.
             // We don't want to invoke the constructor, because we already have a constructed instance in nativePtr.
             NativePtr = nativePtr;
-            unsafe
-            {
-                ConstructAndInitialize(NativeCtor, NativeName, _cachedType, refCounted: false);
+            unsafe {
+                ConstructAndInitialize(
+                    NativePtr == IntPtr.Zero ? NativeCtor(godot_bool.True) : IntPtr.Zero,
+                    NativeName,
+                    _cachedType,
+                    refCounted: false
+                );
             }
         }
 
-        internal unsafe void ConstructAndInitialize(
-            delegate* unmanaged<godot_bool, IntPtr> nativeCtor,
+        internal void ConstructAndInitialize(
+            IntPtr nativePtr,
             StringName nativeName,
             Type cachedType,
             bool refCounted
@@ -53,10 +62,8 @@ namespace Godot
         {
             if (NativePtr == IntPtr.Zero)
             {
-                Debug.Assert(nativeCtor != null);
-
-                // Need postinitialization.
-                NativePtr = nativeCtor(godot_bool.True);
+                Debug.Assert(nativePtr != IntPtr.Zero);
+                NativePtr = nativePtr;
 
                 InteropUtils.TieManagedToUnmanaged(this, NativePtr,
                     nativeName, refCounted, GetType(), cachedType);
@@ -326,6 +333,30 @@ namespace Godot
 
             return nativeConstructor;
         }
+
+#pragma warning disable CA2201
+        internal static IntPtr ClassDB_get_class_info(StringName type)
+        {
+            var typeSelf = (godot_string_name)type.NativeValue;
+            IntPtr classInfo = NativeFuncs.godotsharp_get_class_info(typeSelf);
+            if (classInfo == IntPtr.Zero)
+                throw new NullReferenceException($"ClassInfo not found for class `{type}`.");
+
+            return classInfo;
+        }
+
+        internal static IntPtr ClassDB_instantiate_with_class_info(IntPtr classInfo, bool postInitialize)
+        {
+            godot_bool postinitialize = postInitialize.ToGodotBool();
+            IntPtr obj = NativeFuncs.godotsharp_instantiate_with_class_info(classInfo, postinitialize);
+
+            // This warning is idiotic, spending time on exception types is an excellent way of not getting any work done.
+            if (obj == IntPtr.Zero)
+                throw new NullReferenceException("Could not instantiate class through its ClassInfo.");
+
+            return obj;
+        }
+#pragma warning restore CA2201
 
         /// <summary>
         /// Saves this instance's state to be restored when reloading assemblies.
