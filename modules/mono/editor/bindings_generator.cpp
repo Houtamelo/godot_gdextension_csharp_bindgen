@@ -5752,8 +5752,8 @@ Error BindingsGenerator::generate_gdextension_cs_api(const String &p_proj_dir) {
 		out << "        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>\n";
 		out << "    </PropertyGroup>\n";
 		out << "    <ItemGroup>\n";
-		out << "        <PackageReference Include=\"GodotSharp\" Version=\"" VERSION_NUMBER "\"/>\n";
-		out << "        <PackageReference Include=\"GodotSharpEditor\" Version=\"" VERSION_NUMBER "\"/>\n";
+		out << "        <PackageReference Include=\"GodotSharp\" Version=\"" VERSION_BRANCH ".*\"/>\n";
+		out << "        <PackageReference Include=\"GodotSharpEditor\" Version=\"" VERSION_BRANCH ".*\"/>\n";
 		out << "    </ItemGroup>\n";
 		out << "    <Import Condition=\" '$(GodotSkipGenerated)' == '' \" Project=\"Generated\\GeneratedIncludes.props\" />\n";
 		out << "</Project>\n";
