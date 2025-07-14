@@ -84,11 +84,19 @@ namespace GodotTools.Internals
 
             _projectCsProjPath = Path.Combine(ProjectSettings.GlobalizePath(csprojParentDir),
                 string.Concat(_projectAssemblyName, ".csproj"));
+
+            _projectGDExtensionBindingsPath = Path.Combine(
+                ProjectSettings.GlobalizePath(csprojParentDir),
+                ".godot",
+                "mono",
+                "gdextension_bindings"
+            );
         }
 
         private static string? _projectAssemblyName;
         private static string? _projectSlnPath;
         private static string? _projectCsProjPath;
+        private static string? _projectGDExtensionBindingsPath;
 
         public static string ProjectAssemblyName
         {
@@ -127,6 +135,28 @@ namespace GodotTools.Internals
                 if (_projectCsProjPath == null)
                     DetermineProjectLocation();
                 return Path.Combine(Path.GetDirectoryName(_projectCsProjPath)!, ".godot", "mono", "temp", "bin");
+            }
+        }
+
+        public static string GDExtensionBindingsPath
+        {
+            get
+            {
+                if (_projectGDExtensionBindingsPath == null)
+                    DetermineProjectLocation();
+
+                return _projectGDExtensionBindingsPath!;
+            }
+        }
+
+        public static string GDExtensionBindingsProjectPath
+        {
+            get
+            {
+                if (_projectGDExtensionBindingsPath == null)
+                    DetermineProjectLocation();
+
+                return Path.Combine(_projectGDExtensionBindingsPath!, "GodotSharpGDExtensionBindings.csproj");
             }
         }
 

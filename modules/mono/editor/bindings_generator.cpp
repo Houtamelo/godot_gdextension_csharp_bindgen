@@ -81,6 +81,7 @@ StringBuilder &operator<<(StringBuilder &r_sb, const char *p_cstring) {
 #define BINDINGS_CLASS_CONSTRUCTOR "Constructors"
 #define BINDINGS_CLASS_CONSTRUCTOR_EDITOR "EditorConstructors"
 #define BINDINGS_CLASS_CONSTRUCTOR_DICTIONARY "BuiltInMethodConstructors"
+#define BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR_DICTIONARY "GDExtensionMethodConstructors"
 
 #define BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR BINDINGS_CLASS_CONSTRUCTOR BINDINGS_GDEXTENSION_SUFFIX
 #define BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR_METHOD "AddConstructors" BINDINGS_GDEXTENSION_SUFFIX
@@ -1494,7 +1495,7 @@ int BindingsGenerator::_determine_enum_prefix(const EnumInterface &p_ienum) {
 		for (i = 0; i < candidate_len && i < parts.size(); i++) {
 			if (front_parts[i] != parts[i]) {
 				// HARDCODED: Some Flag enums have the prefix 'FLAG_' for everything except 'FLAGS_DEFAULT' (same for 'METHOD_FLAG_' and'METHOD_FLAGS_DEFAULT').
-				bool hardcoded_exc = (i == candidate_len - 1 && ((front_parts[i] == "FLAGS" && parts[i] == "FLAG") || (front_parts[i] == "FLAG" && parts[i] == "FLAGS")));
+				bool hardcoded_exc = i == candidate_len - 1 && ((front_parts[i] == "FLAGS" && parts[i] == "FLAG") || (front_parts[i] == "FLAG" && parts[i] == "FLAGS"));
 				if (!hardcoded_exc) {
 					break;
 				}
@@ -1839,30 +1840,78 @@ Error BindingsGenerator::generate_cs_core_project(const String &p_proj_dir) {
 	}
 
 	// Generate source file for built-in type constructor dictionary.
-
 	{
-		StringBuilder cs_built_in_ctors_content;
+		StringBuilder out;
 
-		cs_built_in_ctors_content.append("namespace " BINDINGS_NAMESPACE ";\n\n");
-		cs_built_in_ctors_content.append("using System;\n"
-										 "using System.Collections.Generic;\n"
-										 "using System.Reflection;\n"
-										 "using System.Linq;\n"
-										 "\n");
-		cs_built_in_ctors_content.append("internal static class " BINDINGS_CLASS_CONSTRUCTOR "\n{");
+		out << "namespace " BINDINGS_NAMESPACE ";\n\n";
+		out << "using System;\n"
+			   "using System.Collections.Generic;\n"
+			   "using System.Reflection;\n"
+			   "using System.Linq;\n"
+			   "\n";
+		out << "public static class " BINDINGS_CLASS_CONSTRUCTOR "\n{";
 
-		cs_built_in_ctors_content.append(MEMBER_BEGIN "internal static readonly Dictionary<string, Func<IntPtr, GodotObject>> " BINDINGS_CLASS_CONSTRUCTOR_DICTIONARY ";\n");
+		out << MEMBER_BEGIN "internal static readonly Dictionary<string, Func<IntPtr, GodotObject>> " BINDINGS_CLASS_CONSTRUCTOR_DICTIONARY " = new();\n";
+		out << MEMBER_BEGIN "internal static readonly Dictionary<string, Func<IntPtr, GodotObject>> " BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR_DICTIONARY " = new();\n";
+		out << MEMBER_BEGIN "internal static bool TriedLoadingGDExtension;\n";
 
-		cs_built_in_ctors_content.append(MEMBER_BEGIN "public static GodotObject Invoke(string nativeTypeNameStr, IntPtr nativeObjectPtr)\n");
-		cs_built_in_ctors_content.append(INDENT1 OPEN_BLOCK);
-		cs_built_in_ctors_content.append(INDENT2 "if (!" BINDINGS_CLASS_CONSTRUCTOR_DICTIONARY ".TryGetValue(nativeTypeNameStr, out var constructor))\n");
-		cs_built_in_ctors_content.append(INDENT3 "throw new InvalidOperationException(\"Wrapper class not found for type: \" + nativeTypeNameStr);\n");
-		cs_built_in_ctors_content.append(INDENT2 "return constructor(nativeObjectPtr);\n");
-		cs_built_in_ctors_content.append(INDENT1 CLOSE_BLOCK);
+		out << MEMBER_BEGIN "public static GodotObject Invoke(string nativeTypeNameStr, IntPtr nativeObjectPtr)\n"
+		    << INDENT1 OPEN_BLOCK
+		    << INDENT2 "if (" BINDINGS_CLASS_CONSTRUCTOR_DICTIONARY ".TryGetValue(nativeTypeNameStr, out var constructor))\n"
+		    << INDENT3 "return constructor(nativeObjectPtr);\n\n";
 
-		cs_built_in_ctors_content.append(MEMBER_BEGIN "static " BINDINGS_CLASS_CONSTRUCTOR "()\n");
-		cs_built_in_ctors_content.append(INDENT1 OPEN_BLOCK);
-		cs_built_in_ctors_content.append(INDENT2 BINDINGS_CLASS_CONSTRUCTOR_DICTIONARY " = new();\n");
+		out << INDENT2 "if (!TriedLoadingGDExtension)\n"
+			<< INDENT3 "LoadGDExtensionMethodConstructors();\n\n";
+
+		out << INDENT2 "if (" BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR_DICTIONARY ".TryGetValue(nativeTypeNameStr, out constructor))\n"
+			<< INDENT3 "return constructor(nativeObjectPtr);\n\n";
+
+		out << INDENT2 "throw new InvalidOperationException(\"Wrapper class not found for type: \" + nativeTypeNameStr);\n";
+
+		out << INDENT1 CLOSE_BLOCK;
+
+		// Unload GDExtension Constructors Method
+		out << INDENT1 << "public static void UnloadGDExtensionMethodConstructors()\n"
+		    << INDENT1 OPEN_BLOCK
+		    << INDENT2 "GD.Print(\"Unloading GdExtension method constructors...\");\n"
+			<< INDENT2 "TriedLoadingGDExtension = false;\n"
+		    << INDENT2 "GDExtensionMethodConstructors.Clear();\n"
+		    << INDENT1 CLOSE_BLOCK;
+
+		out << MEMBER_BEGIN "public static void LoadGDExtensionMethodConstructors()\n"
+		    << INDENT1 OPEN_BLOCK
+		    << INDENT2 "GD.Print(\"Loading GdExtension method constructors...\");\n"
+			<< INDENT2 "TriedLoadingGDExtension = true;\n"
+		    << INDENT2 "var extensionsAssembly = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(x => x.GetName().Name == \"" BINDINGS_GDEXTENSION_ASSEMBLY_NAME "\");\n"
+		    << INDENT2 "\n"
+		    << INDENT2 "// It's fine if the assembly doesn't exist, not all projects use it.\n"
+		    << INDENT2 "if (extensionsAssembly == null) " OPEN_BLOCK
+		    << INDENT3 "// Assemblies are lazily loaded, it's possible that it exists but isn't referenced by the user project, let's try manually loading it.\n"
+		    << INDENT3 "try { extensionsAssembly = Assembly.Load(\"" BINDINGS_GDEXTENSION_ASSEMBLY_NAME "\"); }\n"
+			<< INDENT3 "catch " OPEN_BLOCK
+		    << INDENT4 "GD.Print(\"No assembly named `" BINDINGS_GDEXTENSION_ASSEMBLY_NAME "` found, skipping loading of GDExtension method constructors.\");\n"
+		    << INDENT4 "return;\n"
+		    << INDENT3 CLOSE_BLOCK
+		    << INDENT2 CLOSE_BLOCK
+		    << INDENT2 "\n"
+		    << INDENT2 "var constructorsType = extensionsAssembly.GetType(\"" BINDINGS_GDEXTENSION_NAMESPACE "." BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR "\");\n"
+		    << INDENT2 "if (constructorsType == null) " OPEN_BLOCK
+		    << INDENT3 BINDINGS_GLOBAL_SCOPE_CLASS ".PrintErr(\"BUG: Assembly `" BINDINGS_GDEXTENSION_ASSEMBLY_NAME "` exists but it does not contain the expected type `" BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR "`.\");\n"
+		    << INDENT3 "return;\n"
+		    << INDENT2 CLOSE_BLOCK
+		    << INDENT2 "\n"
+		    << INDENT2 "var populateConstructorMethod = constructorsType.GetMethod(\"" BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR_METHOD "\", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);\n"
+		    << INDENT2 "if (populateConstructorMethod == null) " OPEN_BLOCK
+		    << INDENT3 BINDINGS_GLOBAL_SCOPE_CLASS ".PrintErr(\"BUG: Type `" BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR "` exists but it does not contain the expected method `" BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR_METHOD "`.\");\n"
+		    << INDENT3 "return;\n"
+		    << INDENT2 CLOSE_BLOCK
+		    << INDENT2 "\n"
+		    << INDENT2 "populateConstructorMethod.Invoke(null, [" BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR_DICTIONARY "]);\n"
+		    << INDENT1 CLOSE_BLOCK;
+
+		out << MEMBER_BEGIN "static " BINDINGS_CLASS_CONSTRUCTOR "()\n";
+		out << INDENT1 OPEN_BLOCK;
+		out << INDENT2 BINDINGS_CLASS_CONSTRUCTOR_DICTIONARY " = new();\n";
 
 		for (const KeyValue<StringName, TypeInterface> &E : obj_types) {
 			const TypeInterface &itype = E.value;
@@ -1872,54 +1921,31 @@ Error BindingsGenerator::generate_cs_core_project(const String &p_proj_dir) {
 			}
 
 			if (itype.is_deprecated) {
-				cs_built_in_ctors_content.append("#pragma warning disable CS0618\n");
+				out << "#pragma warning disable CS0618\n";
 			}
 
-			cs_built_in_ctors_content.append(INDENT2 BINDINGS_CLASS_CONSTRUCTOR_DICTIONARY ".Add(\"");
-			cs_built_in_ctors_content.append(itype.name);
-			cs_built_in_ctors_content.append("\", " CS_PARAM_INSTANCE " => new ");
-			cs_built_in_ctors_content.append(itype.proxy_name);
+			out << INDENT2 BINDINGS_CLASS_CONSTRUCTOR_DICTIONARY ".Add(\"";
+			out << itype.name;
+			out << "\", " CS_PARAM_INSTANCE " => new ";
+			out << itype.proxy_name;
 			if (itype.is_singleton && !itype.is_compat_singleton) {
-				cs_built_in_ctors_content.append("Instance");
+				out << "Instance";
 			}
-			cs_built_in_ctors_content.append("(" CS_PARAM_INSTANCE "));\n");
+			out << "(" CS_PARAM_INSTANCE "));\n";
 
 			if (itype.is_deprecated) {
-				cs_built_in_ctors_content.append("#pragma warning restore CS0618\n");
+				out << "#pragma warning restore CS0618\n";
 			}
 		}
 
-		cs_built_in_ctors_content.append(INDENT2 "\n");
-		cs_built_in_ctors_content.append(INDENT2 "PopulateGDExtensionConstructorMethods(" BINDINGS_CLASS_CONSTRUCTOR_DICTIONARY ");\n");
-		cs_built_in_ctors_content.append(INDENT1 CLOSE_BLOCK);
+		out << INDENT2 "\n";
+		out << INDENT2 "LoadGDExtensionMethodConstructors();\n";
+		out << INDENT1 CLOSE_BLOCK;
 
-		cs_built_in_ctors_content.append(MEMBER_BEGIN "private static void PopulateGDExtensionConstructorMethods(Dictionary<string, Func<IntPtr, GodotObject>> builtInMethodConstructors)\n");
-		cs_built_in_ctors_content.append(INDENT1 OPEN_BLOCK);
-		cs_built_in_ctors_content.append(INDENT2 "\n");
-		cs_built_in_ctors_content.append(INDENT2 "var extensionsAssembly = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(x => x.GetName().Name == \"" BINDINGS_GDEXTENSION_ASSEMBLY_NAME "\");\n");
-		cs_built_in_ctors_content.append(INDENT2 "\n");
-		cs_built_in_ctors_content.append(INDENT2 "// It's fine if the assembly doesn't exist, not all projects use it.\n");
-		cs_built_in_ctors_content.append(INDENT2 "if (extensionsAssembly == null) return;\n");
-		cs_built_in_ctors_content.append(INDENT2 "\n");
-		cs_built_in_ctors_content.append(INDENT2 "var constructorsType = extensionsAssembly.GetType(\"" BINDINGS_GDEXTENSION_NAMESPACE "." BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR "\");\n");
-		cs_built_in_ctors_content.append(INDENT2 "if (constructorsType == null) " OPEN_BLOCK);
-		cs_built_in_ctors_content.append(INDENT3 BINDINGS_GLOBAL_SCOPE_CLASS ".PrintErr(\"BUG: Assembly `" BINDINGS_GDEXTENSION_ASSEMBLY_NAME "` exists but it does not contain the expected type `" BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR "`.\");\n");
-		cs_built_in_ctors_content.append(INDENT3 "return;\n");
-		cs_built_in_ctors_content.append(INDENT2 CLOSE_BLOCK);
-		cs_built_in_ctors_content.append(INDENT2 "\n");
-		cs_built_in_ctors_content.append(INDENT2 "var populateConstructorMethod = constructorsType.GetMethod(\"" BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR_METHOD "\", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);\n");
-		cs_built_in_ctors_content.append(INDENT2 "if (populateConstructorMethod == null) " OPEN_BLOCK);
-		cs_built_in_ctors_content.append(INDENT3 BINDINGS_GLOBAL_SCOPE_CLASS ".PrintErr(\"BUG: Type `" BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR "` exists but it does not contain the expected method `" BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR_METHOD "`.\");\n");
-		cs_built_in_ctors_content.append(INDENT3 "return;\n");
-		cs_built_in_ctors_content.append(INDENT2 CLOSE_BLOCK);
-		cs_built_in_ctors_content.append(INDENT2 "\n");
-		cs_built_in_ctors_content.append(INDENT2 "populateConstructorMethod.Invoke(null, [builtInMethodConstructors]);\n");
-		cs_built_in_ctors_content.append(INDENT1 CLOSE_BLOCK);
-
-		cs_built_in_ctors_content.append(CLOSE_BLOCK);
+		out << CLOSE_BLOCK;
 
 		String constructors_file = path::join(base_gen_dir, BINDINGS_CLASS_CONSTRUCTOR ".cs");
-		Error err = _save_file(constructors_file, cs_built_in_ctors_content);
+		Error err = _save_file(constructors_file, out);
 
 		if (err != OK) {
 			return err;
@@ -1930,65 +1956,69 @@ Error BindingsGenerator::generate_cs_core_project(const String &p_proj_dir) {
 
 	// Generate native calls
 
-	StringBuilder cs_icalls_content;
+	{
+		StringBuilder out;
 
-	cs_icalls_content.append("namespace " BINDINGS_NAMESPACE ";\n\n");
-	cs_icalls_content.append("using System;\n"
-							 "using System.Diagnostics.CodeAnalysis;\n"
-							 "using System.Runtime.InteropServices;\n"
-							 "using Godot.NativeInterop;\n"
-							 "\n");
-	cs_icalls_content.append("[SuppressMessage(\"ReSharper\", \"InconsistentNaming\")]\n");
-	cs_icalls_content.append("[SuppressMessage(\"ReSharper\", \"RedundantUnsafeContext\")]\n");
-	cs_icalls_content.append("[SuppressMessage(\"ReSharper\", \"RedundantNameQualifier\")]\n");
-	cs_icalls_content.append("[System.Runtime.CompilerServices.SkipLocalsInit]\n");
-	cs_icalls_content.append("internal static class " BINDINGS_CLASS_NATIVECALLS "\n{");
+		out << "namespace " BINDINGS_NAMESPACE ";\n\n";
+		out << "using System;\n"
+			   "using System.Diagnostics.CodeAnalysis;\n"
+			   "using System.Runtime.InteropServices;\n"
+			   "using Godot.NativeInterop;\n"
+			   "\n";
+		out << "[SuppressMessage(\"ReSharper\", \"InconsistentNaming\")]\n";
+		out << "[SuppressMessage(\"ReSharper\", \"RedundantUnsafeContext\")]\n";
+		out << "[SuppressMessage(\"ReSharper\", \"RedundantNameQualifier\")]\n";
+		out << "[System.Runtime.CompilerServices.SkipLocalsInit]\n";
+		out << "internal static class " BINDINGS_CLASS_NATIVECALLS "\n{";
 
-	cs_icalls_content.append(MEMBER_BEGIN "internal static ulong godot_api_hash = ");
-	cs_icalls_content.append(String::num_uint64(ClassDB::get_api_hash(ClassDB::API_CORE)) + ";\n");
+		out << MEMBER_BEGIN "internal static ulong godot_api_hash = ";
+		out << (String::num_uint64(ClassDB::get_api_hash(ClassDB::API_CORE)) + ";\n");
 
-	cs_icalls_content.append(MEMBER_BEGIN "private const int VarArgsSpanThreshold = 10;\n");
+		out << MEMBER_BEGIN "private const int VarArgsSpanThreshold = 10;\n";
 
-	for (const InternalCall &icall : method_icalls) {
-		if (icall.editor_only) {
-			continue;
+		for (const InternalCall &icall : method_icalls) {
+			if (icall.editor_only) {
+				continue;
+			}
+			Error err = _generate_cs_native_calls(icall, out);
+			if (err != OK) {
+				return err;
+			}
 		}
-		Error err = _generate_cs_native_calls(icall, cs_icalls_content);
+
+		out << CLOSE_BLOCK;
+
+		String internal_methods_file = path::join(base_gen_dir, BINDINGS_CLASS_NATIVECALLS ".cs");
+
+		Error err = _save_file(internal_methods_file, out);
 		if (err != OK) {
 			return err;
 		}
+
+		compile_items.push_back(internal_methods_file);
 	}
-
-	cs_icalls_content.append(CLOSE_BLOCK);
-
-	String internal_methods_file = path::join(base_gen_dir, BINDINGS_CLASS_NATIVECALLS ".cs");
-
-	Error err = _save_file(internal_methods_file, cs_icalls_content);
-	if (err != OK) {
-		return err;
-	}
-
-	compile_items.push_back(internal_methods_file);
 
 	// Generate GeneratedIncludes.props
 
-	StringBuilder includes_props_content;
-	includes_props_content.append("<Project>\n"
-								  "  <ItemGroup>\n");
+	{
+		StringBuilder out;
+		out << "<Project>\n"
+			   "  <ItemGroup>\n";
 
-	for (int i = 0; i < compile_items.size(); i++) {
-		String include = path::relative_to(compile_items[i], p_proj_dir).replace("/", "\\");
-		includes_props_content.append("    <Compile Include=\"" + include + "\" />\n");
-	}
+		for (int i = 0; i < compile_items.size(); i++) {
+			String include = path::relative_to(compile_items[i], p_proj_dir).replace("/", "\\");
+			out << ("    <Compile Include=\"" + include + "\" />\n");
+		}
 
-	includes_props_content.append("  </ItemGroup>\n"
-								  "</Project>\n");
+		out << "  </ItemGroup>\n"
+			   "</Project>\n";
 
-	String includes_props_file = path::join(base_gen_dir, "GeneratedIncludes.props");
+		String includes_props_file = path::join(base_gen_dir, "GeneratedIncludes.props");
 
-	err = _save_file(includes_props_file, includes_props_content);
-	if (err != OK) {
-		return err;
+		Error err = _save_file(includes_props_file, out);
+		if (err != OK) {
+			return err;
+		}
 	}
 
 	return OK;
@@ -5478,17 +5508,19 @@ Error BindingsGenerator::generate_gdextension_cs_api(const String &p_proj_dir) {
 
 	// Generate source file for gdextension type constructor dictionary.
 	{
-		StringBuilder cs_built_in_ctors_content;
+		StringBuilder out;
 
-		cs_built_in_ctors_content.append("namespace " BINDINGS_GDEXTENSION_NAMESPACE ";\n\n");
-		cs_built_in_ctors_content.append("using System;");
-		cs_built_in_ctors_content.append("using System.Collections.Generic;\n");
-		cs_built_in_ctors_content.append("using " BINDINGS_NAMESPACE ";\n");
-		cs_built_in_ctors_content.append("\n");
-		cs_built_in_ctors_content.append("internal static class " BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR "\n{");
+		out << "namespace " BINDINGS_GDEXTENSION_NAMESPACE ";\n\n";
+		out << "using System;\n";
+		out << "using System.Collections.Generic;\n";
+		out << "using " BINDINGS_NAMESPACE ";\n";
+		out << "\n";
+		out << "internal static class " BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR "\n{";
 
-		cs_built_in_ctors_content.append(MEMBER_BEGIN "private static void " BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR_METHOD "(Dictionary<string, Func<IntPtr, GodotObject>> builtInMethodConstructors)\n");
-		cs_built_in_ctors_content.append(INDENT1 OPEN_BLOCK);
+		out << MEMBER_BEGIN "private static void " BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR_METHOD "(Dictionary<string, Func<IntPtr, GodotObject>> builtInMethodConstructors)\n";
+		out << INDENT1 OPEN_BLOCK;
+
+		List<String> types_added;
 
 		for (const TypeInterface* itype_ptr : types_generated) {
 			const TypeInterface &itype = *itype_ptr;
@@ -5498,28 +5530,39 @@ Error BindingsGenerator::generate_gdextension_cs_api(const String &p_proj_dir) {
 			}
 
 			if (itype.is_deprecated) {
-				cs_built_in_ctors_content.append("#pragma warning disable CS0618\n");
+				out << "#pragma warning disable CS0618\n";
 			}
 
-			cs_built_in_ctors_content.append(INDENT2 "builtInMethodConstructors[\"");
-			cs_built_in_ctors_content.append(itype.name);
-			cs_built_in_ctors_content.append("\"] = " CS_PARAM_INSTANCE " => new ");
-			cs_built_in_ctors_content.append(itype.proxy_name);
+			out << INDENT2 "builtInMethodConstructors[\"";
+			out << itype.name;
+			out << "\"] = " CS_PARAM_INSTANCE " => new ";
+			out << itype.proxy_name;
 			if (itype.is_singleton && !itype.is_compat_singleton) {
-				cs_built_in_ctors_content.append("Instance");
+				out << "Instance";
 			}
-			cs_built_in_ctors_content.append("(" CS_PARAM_INSTANCE ");\n");
+			out << "(" CS_PARAM_INSTANCE ");\n";
 
 			if (itype.is_deprecated) {
-				cs_built_in_ctors_content.append("#pragma warning restore CS0618\n");
+				out << "#pragma warning restore CS0618\n";
 			}
+
+			types_added.push_back(itype.cname);
 		}
 
-		cs_built_in_ctors_content.append(INDENT1 CLOSE_BLOCK);
-		cs_built_in_ctors_content.append(CLOSE_BLOCK);
+		out << INDENT2 "\n";
+		out << INDENT2 "GD.Print(\"GDExtension constructors registered: \"\n";
+
+		for (const String &itype_name : types_added) {
+			out << INDENT3 "+ \"\\t" << itype_name << ", \\n\"\n";
+		}
+
+		out << INDENT2 ");\n";
+
+		out << INDENT1 CLOSE_BLOCK;
+		out << CLOSE_BLOCK;
 
 		String constructors_file = path::join(base_gen_dir, BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR ".cs");
-		Error err = bindgen._save_file(constructors_file, cs_built_in_ctors_content);
+		Error err = bindgen._save_file(constructors_file, out);
 
 		if (err != OK) {
 			return err;
@@ -5530,17 +5573,17 @@ Error BindingsGenerator::generate_gdextension_cs_api(const String &p_proj_dir) {
 
 	// Generate source file for gdextension editor type constructor dictionary.
 	{
-		StringBuilder cs_built_in_ctors_content;
+		StringBuilder out;
 
-		cs_built_in_ctors_content.append("namespace " BINDINGS_GDEXTENSION_NAMESPACE ";\n\n");
-		cs_built_in_ctors_content.append("using System;");
-		cs_built_in_ctors_content.append("using System.Collections.Generic;\n");
-		cs_built_in_ctors_content.append("using " BINDINGS_NAMESPACE ";\n");
-		cs_built_in_ctors_content.append("\n");
-		cs_built_in_ctors_content.append("internal static class " BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR_EDITOR "\n{");
+		out << "namespace " BINDINGS_GDEXTENSION_NAMESPACE ";\n\n";
+		out << "using System;\n";
+		out << "using System.Collections.Generic;\n";
+		out << "using " BINDINGS_NAMESPACE ";\n";
+		out << "\n";
+		out << "internal static class " BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR_EDITOR "\n{";
 
-		cs_built_in_ctors_content.append(MEMBER_BEGIN "private static void " BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR_EDITOR_METHOD "(Dictionary<string, Func<IntPtr, GodotObject>> builtInMethodConstructors)\n");
-		cs_built_in_ctors_content.append(INDENT1 OPEN_BLOCK);
+		out << MEMBER_BEGIN "private static void " BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR_EDITOR_METHOD "(Dictionary<string, Func<IntPtr, GodotObject>> builtInMethodConstructors)\n";
+		out << INDENT1 OPEN_BLOCK;
 
 		for (const TypeInterface *itype_ptr : editor_types_generated) {
 			const TypeInterface &itype = *itype_ptr;
@@ -5550,28 +5593,28 @@ Error BindingsGenerator::generate_gdextension_cs_api(const String &p_proj_dir) {
 			}
 
 			if (itype.is_deprecated) {
-				cs_built_in_ctors_content.append("#pragma warning disable CS0618\n");
+				out << "#pragma warning disable CS0618\n";
 			}
 
-			cs_built_in_ctors_content.append(INDENT2 "builtInMethodConstructors[\"");
-			cs_built_in_ctors_content.append(itype.name);
-			cs_built_in_ctors_content.append("\"] = " CS_PARAM_INSTANCE " => new ");
-			cs_built_in_ctors_content.append(itype.proxy_name);
+			out << INDENT2 "builtInMethodConstructors[\"";
+			out << itype.name;
+			out << "\"] = " CS_PARAM_INSTANCE " => new ";
+			out << itype.proxy_name;
 			if (itype.is_singleton && !itype.is_compat_singleton) {
-				cs_built_in_ctors_content.append("Instance");
+				out << "Instance";
 			}
-			cs_built_in_ctors_content.append("(" CS_PARAM_INSTANCE ");\n");
+			out << "(" CS_PARAM_INSTANCE ");\n";
 
 			if (itype.is_deprecated) {
-				cs_built_in_ctors_content.append("#pragma warning restore CS0618\n");
+				out << "#pragma warning restore CS0618\n";
 			}
 		}
 
-		cs_built_in_ctors_content.append(INDENT1 CLOSE_BLOCK);
-		cs_built_in_ctors_content.append(CLOSE_BLOCK);
+		out << INDENT1 CLOSE_BLOCK;
+		out << CLOSE_BLOCK;
 
 		String constructors_file = path::join(base_gen_dir, BINDINGS_GDEXTENSION_CLASS_CONSTRUCTOR_EDITOR ".cs");
-		Error err = bindgen._save_file(constructors_file, cs_built_in_ctors_content);
+		Error err = bindgen._save_file(constructors_file, out);
 
 		if (err != OK) {
 			return err;
@@ -5582,32 +5625,33 @@ Error BindingsGenerator::generate_gdextension_cs_api(const String &p_proj_dir) {
 
 	// Generate native calls
 	{
-		StringBuilder cs_icalls_content;
+		StringBuilder out;
 
-		cs_icalls_content.append("namespace " BINDINGS_GDEXTENSION_NAMESPACE ";\n\n");
-		cs_icalls_content.append("using " BINDINGS_NAMESPACE ";\n"
-								 "using System;\n"
-								 "using System.Diagnostics.CodeAnalysis;\n"
-								 "using System.Runtime.InteropServices;\n"
-								 "using Godot.NativeInterop;\n"
-								 "\n");
-		cs_icalls_content.append("[SuppressMessage(\"ReSharper\", \"InconsistentNaming\")]\n");
-		cs_icalls_content.append("[SuppressMessage(\"ReSharper\", \"RedundantUnsafeContext\")]\n");
-		cs_icalls_content.append("[SuppressMessage(\"ReSharper\", \"RedundantNameQualifier\")]\n");
-		cs_icalls_content.append("[System.Runtime.CompilerServices.SkipLocalsInit]\n");
-		cs_icalls_content.append("internal static class " BINDINGS_GDEXTENSION_CLASS_NATIVECALLS "\n{");
+		out << "namespace " BINDINGS_GDEXTENSION_NAMESPACE ";\n\n";
+		out << "using " BINDINGS_NAMESPACE ";\n"
+			   "using System;\n"
+			   "using System.Diagnostics.CodeAnalysis;\n"
+			   "using System.Runtime.InteropServices;\n"
+			   "using Godot.NativeInterop;\n"
+			   "\n";
 
-		cs_icalls_content.append(MEMBER_BEGIN "internal static ulong godot_api_hash = ");
-		cs_icalls_content.append(String::num_uint64(ClassDB::get_api_hash(ClassDB::API_CORE)) + ";\n");
+		out << "[SuppressMessage(\"ReSharper\", \"InconsistentNaming\")]\n";
+		out << "[SuppressMessage(\"ReSharper\", \"RedundantUnsafeContext\")]\n";
+		out << "[SuppressMessage(\"ReSharper\", \"RedundantNameQualifier\")]\n";
+		out << "[System.Runtime.CompilerServices.SkipLocalsInit]\n";
+		out << "internal static class " BINDINGS_GDEXTENSION_CLASS_NATIVECALLS "\n{";
 
-		cs_icalls_content.append(MEMBER_BEGIN "private const int VarArgsSpanThreshold = 10;\n");
+		out << MEMBER_BEGIN "internal static ulong godot_api_hash = ";
+		out << (String::num_uint64(ClassDB::get_api_hash(ClassDB::API_CORE)) + ";\n");
+
+		out << MEMBER_BEGIN "private const int VarArgsSpanThreshold = 10;\n";
 
 		for (const InternalCall* icall : icalls_used) {
 			if (icall->editor_only) {
 				continue;
 			}
 
-			Error err = bindgen._generate_cs_native_calls(*icall, cs_icalls_content);
+			Error err = bindgen._generate_cs_native_calls(*icall, out);
 			if (err != OK) {
 				return err;
 			}
@@ -5618,17 +5662,17 @@ Error BindingsGenerator::generate_gdextension_cs_api(const String &p_proj_dir) {
 				continue;
 			}
 
-			Error err = bindgen._generate_cs_native_calls(icall, cs_icalls_content);
+			Error err = bindgen._generate_cs_native_calls(icall, out);
 			if (err != OK) {
 				return err;
 			}
 		}
 
-		cs_icalls_content.append(CLOSE_BLOCK);
+		out << CLOSE_BLOCK;
 
 		String internal_methods_file = path::join(base_gen_dir, BINDINGS_GDEXTENSION_CLASS_NATIVECALLS ".cs");
 
-		Error err = bindgen._save_file(internal_methods_file, cs_icalls_content);
+		Error err = bindgen._save_file(internal_methods_file, out);
 		if (err != OK) {
 			return err;
 		}
@@ -5638,34 +5682,33 @@ Error BindingsGenerator::generate_gdextension_cs_api(const String &p_proj_dir) {
 
 	// Generate native editor calls
 	{
-		StringBuilder cs_icalls_content;
+		StringBuilder out;
 
-		cs_icalls_content.append("namespace " BINDINGS_GDEXTENSION_NAMESPACE ";\n\n");
-		cs_icalls_content.append("using " BINDINGS_NAMESPACE ";\n"
-							 	"using System;\n"
-							 	"using System.Diagnostics.CodeAnalysis;\n"
-							 	"using System.Runtime.InteropServices;\n"
-							 	"using Godot.NativeInterop;\n"
-							 	"\n");
-		cs_icalls_content.append("[SuppressMessage(\"ReSharper\", \"InconsistentNaming\")]\n");
-		cs_icalls_content.append("[SuppressMessage(\"ReSharper\", \"RedundantUnsafeContext\")]\n");
-		cs_icalls_content.append("[SuppressMessage(\"ReSharper\", \"RedundantNameQualifier\")]\n");
-		cs_icalls_content.append("[System.Runtime.CompilerServices.SkipLocalsInit]\n");
-		cs_icalls_content.append("internal static class " BINDINGS_GDEXTENSION_CLASS_NATIVECALLS_EDITOR "\n" OPEN_BLOCK);
+		out << "namespace " BINDINGS_GDEXTENSION_NAMESPACE ";\n\n"
+			   "using " BINDINGS_NAMESPACE ";\n"
+			   "using System;\n"
+			   "using System.Diagnostics.CodeAnalysis;\n"
+			   "using System.Runtime.InteropServices;\n"
+			   "using Godot.NativeInterop;\n"
+			   "\n";
 
-		cs_icalls_content.append(INDENT1 "internal static ulong godot_api_hash = ");
-		cs_icalls_content.append(String::num_uint64(ClassDB::get_api_hash(ClassDB::API_EDITOR)) + ";\n");
+		out << "[SuppressMessage(\"ReSharper\", \"InconsistentNaming\")]\n"
+		       "[SuppressMessage(\"ReSharper\", \"RedundantUnsafeContext\")]\n"
+               "[SuppressMessage(\"ReSharper\", \"RedundantNameQualifier\")]\n"
+			   "[System.Runtime.CompilerServices.SkipLocalsInit]\n";
 
-		cs_icalls_content.append(MEMBER_BEGIN "private const int VarArgsSpanThreshold = 10;\n");
-
-		cs_icalls_content.append("\n");
+        out << "internal static class " BINDINGS_GDEXTENSION_CLASS_NATIVECALLS_EDITOR "\n" OPEN_BLOCK
+			<< INDENT1 "internal static ulong godot_api_hash = "
+		    << String::num_uint64(ClassDB::get_api_hash(ClassDB::API_EDITOR)) << ";\n"
+		    << MEMBER_BEGIN "private const int VarArgsSpanThreshold = 10;\n"
+			<< "\n";
 
 		for (const InternalCall* icall : icalls_used) {
 			if (!icall->editor_only) {
 				continue;
 			}
 
-			Error err = bindgen._generate_cs_native_calls(*icall, cs_icalls_content);
+			Error err = bindgen._generate_cs_native_calls(*icall, out);
 			if (err != OK) {
 				return err;
 			}
@@ -5676,17 +5719,17 @@ Error BindingsGenerator::generate_gdextension_cs_api(const String &p_proj_dir) {
 				continue;
 			}
 
-			Error err = bindgen._generate_cs_native_calls(icall, cs_icalls_content);
+			Error err = bindgen._generate_cs_native_calls(icall, out);
 			if (err != OK) {
 				return err;
 			}
 		}
 
-		cs_icalls_content.append(CLOSE_BLOCK);
+		out << CLOSE_BLOCK;
 
 		String internal_methods_file = path::join(base_gen_dir, BINDINGS_GDEXTENSION_CLASS_NATIVECALLS_EDITOR ".cs");
 
-		Error err = bindgen._save_file(internal_methods_file, cs_icalls_content);
+		Error err = bindgen._save_file(internal_methods_file, out);
 		if (err != OK) {
 			return err;
 		}
@@ -5696,27 +5739,27 @@ Error BindingsGenerator::generate_gdextension_cs_api(const String &p_proj_dir) {
 
 	// Generate .csproj file
 	{
-		StringBuilder csproj_content;
+		StringBuilder out;
 
-		csproj_content.append("<Project Sdk=\"Microsoft.NET.Sdk\">\n");
-		csproj_content.append("    <PropertyGroup>\n");
-		csproj_content.append("        <AssemblyName>" BINDINGS_GDEXTENSION_ASSEMBLY_NAME "</AssemblyName>\n");
-		csproj_content.append("        <TargetFramework>net8.0</TargetFramework>\n");
-		csproj_content.append("        <LangVersion>12</LangVersion>\n");
-		csproj_content.append("        <EnableDynamicLoading>true</EnableDynamicLoading>\n");
-		csproj_content.append("        <RootNamespace>" BINDINGS_GDEXTENSION_NAMESPACE "</RootNamespace>\n");
-		csproj_content.append("        <EnableDefaultItems>false</EnableDefaultItems>\n");
-		csproj_content.append("        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>\n");
-		csproj_content.append("    </PropertyGroup>\n");
-		csproj_content.append("    <ItemGroup>\n");
-		csproj_content.append("        <PackageReference Include=\"GodotSharp\" Version=\"" VERSION_NUMBER "\"/>\n");
-		csproj_content.append("        <PackageReference Include=\"GodotSharpEditor\" Version=\"" VERSION_NUMBER "\"/>\n");
-		csproj_content.append("    </ItemGroup>\n");
-		csproj_content.append("    <Import Condition=\" '$(GodotSkipGenerated)' == '' \" Project=\"Generated\\GeneratedIncludes.props\" />\n");
-		csproj_content.append("</Project>\n");
+		out << "<Project Sdk=\"Microsoft.NET.Sdk\">\n";
+		out << "    <PropertyGroup>\n";
+		out << "        <AssemblyName>" BINDINGS_GDEXTENSION_ASSEMBLY_NAME "</AssemblyName>\n";
+		out << "        <TargetFramework>net8.0</TargetFramework>\n";
+		out << "        <LangVersion>12</LangVersion>\n";
+		out << "        <EnableDynamicLoading>true</EnableDynamicLoading>\n";
+		out << "        <RootNamespace>" BINDINGS_GDEXTENSION_NAMESPACE "</RootNamespace>\n";
+		out << "        <EnableDefaultItems>false</EnableDefaultItems>\n";
+		out << "        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>\n";
+		out << "    </PropertyGroup>\n";
+		out << "    <ItemGroup>\n";
+		out << "        <PackageReference Include=\"GodotSharp\" Version=\"" VERSION_NUMBER "\"/>\n";
+		out << "        <PackageReference Include=\"GodotSharpEditor\" Version=\"" VERSION_NUMBER "\"/>\n";
+		out << "    </ItemGroup>\n";
+		out << "    <Import Condition=\" '$(GodotSkipGenerated)' == '' \" Project=\"Generated\\GeneratedIncludes.props\" />\n";
+		out << "</Project>\n";
 
 		String csproj_file = path::join(p_proj_dir, GDEXTENSION_API_SOLUTION_NAME ".csproj");
-		Error err = bindgen._save_file(csproj_file, csproj_content);
+		Error err = bindgen._save_file(csproj_file, out);
 
 		if (err != OK) {
 			return err;
@@ -5725,15 +5768,15 @@ Error BindingsGenerator::generate_gdextension_cs_api(const String &p_proj_dir) {
 
 	// Generate .editorconfig file
 	{
-		StringBuilder editorconfig_content;
+		StringBuilder out;
 
-		editorconfig_content.append("[*.cs]\n");
-		editorconfig_content.append("root = true\n");
-		editorconfig_content.append("generated_code = true\n");
-		editorconfig_content.append("dotnet_analyzer_diagnostic.severity = none\n");
+		out << "[*.cs]\n";
+		out << "root = true\n";
+		out << "generated_code = true\n";
+		out << "dotnet_analyzer_diagnostic.severity = none\n";
 
 		String editorconfig_file = path::join(p_proj_dir, ".editorconfig");
-		Error err = bindgen._save_file(editorconfig_file, editorconfig_content);
+		Error err = bindgen._save_file(editorconfig_file, out);
 
 		if (err != OK) {
 			return err;
@@ -5742,11 +5785,11 @@ Error BindingsGenerator::generate_gdextension_cs_api(const String &p_proj_dir) {
 
 	// Generate .gdignore file
 	{
-		StringBuilder gdignore_content;
-		gdignore_content.append("");
+		StringBuilder out;
+		out << "";
 
 		String gdignore_file = path::join(p_proj_dir, ".gdignore");
-		Error err = bindgen._save_file(gdignore_file, gdignore_content);
+		Error err = bindgen._save_file(gdignore_file, out);
 
 		if (err != OK) {
 			return err;
@@ -5755,21 +5798,21 @@ Error BindingsGenerator::generate_gdextension_cs_api(const String &p_proj_dir) {
 
 	// Generate GeneratedIncludes.props
 	{
-		StringBuilder includes_props_content;
-		includes_props_content.append("<Project>\n");
-		includes_props_content.append("  <ItemGroup>\n");
+		StringBuilder out;
+		out << "<Project>\n";
+		out << "  <ItemGroup>\n";
 
 		for (int i = 0; i < compile_items.size(); i++) {
 			String include = path::relative_to(compile_items[i], p_proj_dir).replace("/", "\\");
-			includes_props_content.append("    <Compile Include=\"" + include + "\" />\n");
+			out << ("    <Compile Include=\"" + include + "\" />\n");
 		}
 
-		includes_props_content.append("  </ItemGroup>\n");
-		includes_props_content.append("</Project>\n");
+		out << "  </ItemGroup>\n";
+		out << "</Project>\n";
 
 		String includes_props_file = path::join(base_gen_dir, "GeneratedIncludes.props");
 
-		Error err = bindgen._save_file(includes_props_file, includes_props_content);
+		Error err = bindgen._save_file(includes_props_file, out);
 		if (err != OK) {
 			return err;
 		}

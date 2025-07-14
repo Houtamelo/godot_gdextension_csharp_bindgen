@@ -116,6 +116,56 @@ namespace GodotTools
             return true;
         }
 
+        private bool GenerateGDExtensionBindings()
+        {
+            using (var pr = new EditorProgress(
+                       "generate_csharp_gdextension_bindings",
+                       "Generating C# GDExtension bindings...".TTR(),
+                       4
+                   ))
+            {
+                pr.Step("Deleting old C# GDExtension bindings...".TTR());
+
+                string bindingsPath = GodotSharpDirs.GDExtensionBindingsPath;
+                if (System.IO.Directory.Exists(bindingsPath))
+                {
+                    var err = Godot.OS.MoveToTrash(bindingsPath);
+                    if (err != Error.Ok)
+                    {
+                        ShowErrorDialog($"Could not delete old C# GDExtension bindings' project, OS returned error: {err}.\n"
+                            + $"Bindings path: \"{bindingsPath}\".");
+                        return false;
+                    }
+                }
+
+                pr.Step("Creating C# GDExtension bindings' project directory...".TTR());
+                try
+                {
+                    System.IO.Directory.CreateDirectory(bindingsPath);
+                }
+                catch (Exception err)
+                {
+                    ShowErrorDialog($"Could not create C# GDExtension bindings' project folder. \nError: {err}.");
+                    return false;
+                }
+
+                pr.Step("Generating C# GDExtension bindings' project... (Ignore console warnings)");
+
+                {
+                    var err = ClassDB.GenerateGdextensionCsApi(bindingsPath);
+                    if (err != Error.Ok)
+                    {
+                        ShowErrorDialog($"Could not generate C# GDExtension bindings, error: {err}." );
+                        return false;
+                    }
+                }
+            }
+
+            GD.Print("C# GDExtension Bindings were successfully generated, please restart the editor.");
+
+            return true;
+        }
+
         private void _ShowDotnetFeatures()
         {
             _bottomPanelBtn.Show();
@@ -138,6 +188,11 @@ namespace GodotTools
                     }
                     break;
                 }
+                case MenuOptions.GenerateGDExtensionBindings:
+                {
+                    GenerateGDExtensionBindings();
+                    break;
+                }
                 default:
                     throw new ArgumentOutOfRangeException(nameof(id), id, "Invalid menu option");
             }
@@ -157,6 +212,7 @@ namespace GodotTools
         private enum MenuOptions
         {
             CreateSln,
+            GenerateGDExtensionBindings,
         }
 
         public void ShowErrorDialog(string message, string title = "Error")
@@ -550,6 +606,7 @@ namespace GodotTools
                 _toolBarBuildButton.Hide();
             }
             _menuPopup.AddItem("Create C# solution".TTR(), (int)MenuOptions.CreateSln);
+            _menuPopup.AddItem("Generate C# GDExtension Bindings".TTR(), (int)MenuOptions.GenerateGDExtensionBindings);
 
             _menuPopup.IdPressed += _MenuOptionPressed;
 

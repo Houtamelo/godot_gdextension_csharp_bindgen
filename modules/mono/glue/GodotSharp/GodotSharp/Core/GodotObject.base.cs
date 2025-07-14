@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using Godot.Bridge;
@@ -16,6 +18,9 @@ namespace Godot
         private static readonly Type _cachedType = typeof(GodotObject);
 
         private static readonly Dictionary<Type, StringName?> _nativeNames = new Dictionary<Type, StringName?>();
+
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public static void OnBeforeAssemblyUnload() => AssemblyUtils.RemoveNonGodotSharpTypes(_nativeNames);
 
         internal IntPtr NativePtr;
         private bool _memoryOwn;
@@ -208,9 +213,16 @@ namespace Godot
                 return true;
             }
 
+            string? assemblyName = t.Assembly.GetName().Name;
+
+            if (assemblyName == "GodotSharpGDExtensionBindings")
+            {
+                return true;
+            }
+
             if (ReflectionUtils.IsEditorHintCached)
             {
-                return t.Assembly.GetName().Name == "GodotSharpEditor";
+                return assemblyName == "GodotSharpEditor";
             }
 
             return false;

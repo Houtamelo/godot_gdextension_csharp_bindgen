@@ -215,6 +215,11 @@ static bool _attempt_doc_load(const String &p_class) {
 		const Vector<DocData::ClassDoc> docs = script->get_documentation();
 		for (int j = 0; j < docs.size(); j++) {
 			const DocData::ClassDoc &doc = docs.get(j);
+			if (doc.name.is_empty()) {
+				ERR_PRINT(String("Expected `class_doc.name` to be non-empty. Class name: " + p_class));
+				continue;
+			}
+
 			EditorHelp::get_doc_data()->add_doc(doc);
 		}
 		return true;

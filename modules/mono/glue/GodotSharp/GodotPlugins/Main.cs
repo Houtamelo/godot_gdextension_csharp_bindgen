@@ -152,6 +152,7 @@ namespace GodotPlugins
                 *outLoadedAssemblyPath = Marshaling.ConvertStringToNative(loadedAssemblyPath);
 
                 ScriptManagerBridge.LookupScriptsInAssembly(projectAssembly);
+                Godot.Constructors.LoadGDExtensionMethodConstructors();
 
                 return godot_bool.True;
             }
@@ -243,6 +244,10 @@ namespace GodotPlugins
                 }
 
                 Console.WriteLine("Unloading assembly load context...");
+
+                Godot.Constructors.UnloadGDExtensionMethodConstructors();
+                ScriptManagerBridge.OnBeforeAssemblyUnload();
+                Godot.GodotObject.OnBeforeAssemblyUnload();
 
                 pluginLoadContext.Unload();
 

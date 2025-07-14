@@ -28,10 +28,15 @@
     <PackageReference Include="Godot.SourceGenerators" IsImplicitlyDefined="true" Version="$(PackageVersion_Godot_SourceGenerators)" />
   </ItemGroup>
 
+  <PropertyGroup>
+    <GDExtensionBindingsProjectPath>$(GodotProjectDir).godot\mono\gdextension_bindings\GodotSharpGDExtensionBindings.csproj</GDExtensionBindingsProjectPath>
+  </PropertyGroup>
+
   <!-- Godot API references -->
   <ItemGroup Condition=" '$(DisableImplicitGodotSharpReferences)' != 'true' ">
     <PackageReference Include="GodotSharp" IsImplicitlyDefined="true" Version="$(PackageVersion_GodotSharp)" />
     <PackageReference Include="GodotSharpEditor" IsImplicitlyDefined="true" Version="$(PackageVersion_GodotSharp)" Condition=" '$(Configuration)' == 'Debug' " />
+    <ProjectReference Include="$(GDExtensionBindingsProjectPath)" IsImplicitlyDefined="true" Condition="Exists('$(GDExtensionBindingsProjectPath)')"/>
   </ItemGroup>
 
   <!-- iOS-specific build targets -->

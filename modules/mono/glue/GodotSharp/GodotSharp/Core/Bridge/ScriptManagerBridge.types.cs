@@ -20,6 +20,12 @@ public static partial class ScriptManagerBridge
         private Dictionary<IntPtr, Type> _scriptTypeMap = new();
         private Dictionary<Type, IntPtr> _typeScriptMap = new();
 
+        public void ClearNonGodotSharpTypes()
+        {
+            AssemblyUtils.RemoveNonGodotSharpTypes(_scriptTypeMap);
+            AssemblyUtils.RemoveNonGodotSharpTypes(_typeScriptMap);
+        }
+
         public void Add(IntPtr scriptPtr, Type scriptType)
         {
             // TODO: What if this is called while unloading a load context, but after we already did cleanup in preparation for unloading?
@@ -69,6 +75,12 @@ public static partial class ScriptManagerBridge
         private Dictionary<Type, string> _typePathMap = new();
 
         public Dictionary<string, Type>.KeyCollection Paths => _pathTypeMap.Keys;
+
+        public void ClearNonGodotSharpTypes()
+        {
+            AssemblyUtils.RemoveNonGodotSharpTypes(_pathTypeMap);
+            AssemblyUtils.RemoveNonGodotSharpTypes(_typePathMap);
+        }
 
         public void Add(string scriptPath, Type scriptType)
         {
