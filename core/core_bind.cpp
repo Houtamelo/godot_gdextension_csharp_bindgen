@@ -1585,7 +1585,11 @@ TypedArray<Dictionary> ClassDB::class_get_method_list(const StringName &p_class,
 }
 
 Error ClassDB::generate_gdextension_cs_api(const String &p_project_dir) const {
+#ifdef TOOLS_ENABLED
 	return BindingsGenerator::generate_gdextension_cs_api(p_project_dir);
+#else
+	return ERR_UNAVAILABLE;
+#endif
 }
 
 Variant ClassDB::class_call_static(const Variant **p_arguments, int p_argcount, Callable::CallError &r_call_error) {
