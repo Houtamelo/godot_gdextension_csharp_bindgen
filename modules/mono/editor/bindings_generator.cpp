@@ -1887,9 +1887,13 @@ Error BindingsGenerator::generate_cs_core_project(const String &p_proj_dir) {
 		    << INDENT2 "// It's fine if the assembly doesn't exist, not all projects use it.\n"
 		    << INDENT2 "if (extensionsAssembly == null) " OPEN_BLOCK
 		    << INDENT3 "// Assemblies are lazily loaded, it's possible that it exists but isn't referenced by the user project, let's try manually loading it.\n"
-		    << INDENT3 "try { extensionsAssembly = Assembly.Load(\"" BINDINGS_GDEXTENSION_ASSEMBLY_NAME "\"); }\n"
-			<< INDENT3 "catch " OPEN_BLOCK
-		    << INDENT4 "GD.Print(\"No assembly named `" BINDINGS_GDEXTENSION_ASSEMBLY_NAME "` found, skipping loading of GDExtension method constructors.\");\n"
+			<< INDENT3 "try { extensionsAssembly = Assembly.Load(\"" BINDINGS_GDEXTENSION_ASSEMBLY_NAME "\"); }\n"
+			<< INDENT3 "catch (Exception err) " OPEN_BLOCK
+		    << INDENT4 "GD.Print(\n"
+			<< INDENT4 "\t\"Failed to load assembly `" BINDINGS_GDEXTENSION_ASSEMBLY_NAME "`, skipping loading of GDExtension method constructors.\\n\"\n"
+			<< INDENT4 "\t+ \"This is expected if your project does not use the CSharpGDExtension bindings.\\n\"\n"
+			<< INDENT4 "\t+ $\"Error message: \\n\\t{err}\"\n"
+			<< INDENT4 ");\n"
 		    << INDENT4 "return;\n"
 		    << INDENT3 CLOSE_BLOCK
 		    << INDENT2 CLOSE_BLOCK
@@ -5550,13 +5554,7 @@ Error BindingsGenerator::generate_gdextension_cs_api(const String &p_proj_dir) {
 		}
 
 		out << INDENT2 "\n";
-		out << INDENT2 "GD.Print(\"GDExtension constructors registered: \"\n";
-
-		for (const String &itype_name : types_added) {
-			out << INDENT3 "+ \"\\t" << itype_name << ", \\n\"\n";
-		}
-
-		out << INDENT2 ");\n";
+		out << INDENT2 "GD.Print(\"GDExtension constructors registered: " << String::num_uint64(types_added.size()) << "\");\n";
 
 		out << INDENT1 CLOSE_BLOCK;
 		out << CLOSE_BLOCK;
